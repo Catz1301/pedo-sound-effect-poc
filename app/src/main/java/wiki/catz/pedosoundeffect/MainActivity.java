@@ -17,10 +17,14 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import wiki.catz.pedosoundeffect.databinding.ActivityMainBinding;
 @SuppressLint("SetTextI18n")
 public class MainActivity extends Activity implements SensorEventListener, StepListener {
 
+    int sampleSize = 100;
     private TextView mTextView;
     private TextView acc_xTV;
     private TextView acc_yTV;
@@ -47,6 +51,8 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
     private Sensor stepDetectorSensor;
     private Sensor stepCounterSensor;
     private int stepCount = 0;
+    private long lastStepMillis = 0;
+    private int timeThreshold = 200; // step cooldown in millis
     private String[] conditionStrings = {
             "Off",
             "Every Step",
@@ -58,6 +64,9 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
     };
     private int conditionStringsIndex = 0;
     double ax,ay,az;   // these are the acceleration in x,y and z axis
+    List<Double> dotProductData, filteredData;
+    private static final double THRESHOLD = 0.09;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,9 +85,11 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
         statusBtn.setText(conditionStrings[conditionStringsIndex]);
         Sensor heartRateSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE);
         if (heartRateSensor != null) {
-            sensorManager.registerListener(this, heartRateSensor, SensorManager.SENSOR_DELAY_FASTEST);
+//            sensorManager.registerListener(this, heartRateSensor, SensorManager.SENSOR_DELAY_FASTEST);
         }
         acc_zTV.setText("noPlayMedia: " + noPlayMedia.toString());
+        dotProductData = new ArrayList<Double>();
+        filteredData = new ArrayList<Double>();
         statusBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -119,15 +130,16 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
                     stepSet = 1000;
                     noUseStepCounter = false;
                 }
+                statusBtn.setText(conditionStrings[conditionStringsIndex]);
                 if (conditionStringsIndex == conditionStrings.length - 1) {
                     conditionStringsIndex = 0;
                 } else {
                     conditionStringsIndex++;
                 }
                 statusBtn.setText(conditionStrings[conditionStringsIndex]);
-                acc_zTV.setText("noPlayMedia: " + noPlayMedia.toString());
-                mostSignificantAxisTV.setText("conStrIndex: " + conditionStringsIndex);
-                playMedia();
+//                acc_zTV.setText("noPlayMedia: " + noPlayMedia.toString());
+//                mostSignificantAxisTV.setText("conStrIndex: " + conditionStringsIndex);
+//                playMedia();
             }
         });
         mediaPlayer[0] = MediaPlayer.create(getApplicationContext(), R.raw.goat_scream);
@@ -151,7 +163,7 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
             acc_xTV.setText("Can't use stepDetector");
         } else {
             acc_xTV.setText("Can use stepDetector");
-            sensorManager.registerListener(this, stepDetectorSensor, SensorManager.SENSOR_DELAY_NORMAL);
+//            sensorManager.registerListener(this, stepDetectorSensor, SensorManager.SENSOR_DELAY_NORMAL);
         }
         stepCounterSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
         if (stepCounterSensor == null) {
@@ -159,7 +171,7 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
             acc_yTV.setText("Can't use stepCounter");
         } else {
             acc_yTV.setText("Can use stepCounter");
-            sensorManager.registerListener(this, stepCounterSensor, SensorManager.SENSOR_DELAY_FASTEST);
+//            sensorManager.registerListener(this, stepCounterSensor, SensorManager.SENSOR_DELAY_FASTEST);
         }
 
 
@@ -193,6 +205,11 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
         }
     }
 
+    public double dotProduct(double[] userAcc, double[] gravityAcc) {
+//        List<Double> procData = new ArrayList<Double>();
+        return Math.sqrt((userAcc[0] * gravityAcc[0]) + (userAcc[1] * gravityAcc[1]) + (userAcc[2] * gravityAcc[2]));
+    }
+
     @Override
     public void onAccuracyChanged(Sensor arg0, int arg1) {
     }
@@ -201,7 +218,7 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
     @Override
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() == Sensor.TYPE_HEART_RATE) {
-            playMedia();
+//            playMedia();
         }
         if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
 //            simpleStepDetector.updateAccel(
@@ -222,6 +239,21 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
             ax = linear_acceleration[0];
             ay = linear_acceleration[1];
             az = linear_acceleration[2];
+
+
+            dotProductData.add(dotProduct(linear_acceleration, gravity));
+            if (dotProductData.size() > sampleSize) {
+                dotProductData.remove(0);
+            }
+            filteredData = Filter.low_5_hz(dotProductData);
+            filteredData = Filter.high_1_hz(filteredData);
+            if (processData(filteredData)) {
+                // simple minimum time check
+                if (System.currentTimeMillis() - lastStepMillis >= timeThreshold) {
+                    step(0);
+                    lastStepMillis = System.currentTimeMillis();
+                }
+            }
             /*
             ax=event.values[0];
             ay=event.values[1];
@@ -258,15 +290,15 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
             //2mostSignificantAxisTV.setText("conStrIndex: " + conditionStringsIndex);
             if (mostSignificantAxis == 0) {// x axis
                 if (Math.abs(Math.abs(ax) - Math.abs(lastAX)) >= threshold) {
-                    step(0);
+                    //step(0);
                 }
             } else if (mostSignificantAxis == 1) {// y axis
                 if (Math.abs(Math.abs(ay) - Math.abs(lastAY)) >= threshold) {
-                    step(0);
+                    //step(0);
                 }
             } else if (mostSignificantAxis == 2) {// z axis
                 if (Math.abs(Math.abs(az) - Math.abs(lastAZ)) >= threshold) {
-                    step(0);
+                    //step(0);
                 }
             }
 
@@ -277,18 +309,36 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
             acc_yTV.setText("StepCount: " + event.values[0]);
             if (event.values[0] - lastStepCount >= stepSet) {
                 lastStepCount = event.values[0];
-                playMedia();
+//                playMedia();
             }
         }
 //        if (no_stepDetector == false && noUseStepDetector == false) {
         if (event.sensor.getType() == Sensor.TYPE_STEP_DETECTOR) {
-            playMedia();
+//            playMedia();
             acc_xTV.setText("StepDetect Val: " + event.values[0]);
             if (event.values[0] == 1.0) {
-                playMedia();
+//                playMedia();
             }
         }
 //        }
+    }
+
+    private boolean processData(List<Double> filteredData) {
+        boolean stepped = false;
+        boolean countSteps = true;
+        for (int i = 0; i < filteredData.size(); i++) {
+            double currentData = filteredData.get(i);
+            if (currentData >= THRESHOLD && filteredData.get(i - 1) < THRESHOLD) {
+                if (!countSteps) {
+                    continue;
+                }
+                countSteps = false;
+            }
+            if (currentData < 0 && filteredData.get(i - 1) >= 0) {
+                countSteps = true;
+            }
+        }
+        return countSteps;
     }
 
     private void stepTaken() {
@@ -344,9 +394,9 @@ public class MainActivity extends Activity implements SensorEventListener, StepL
     public void step(long timeNs) {
         stepCount++;
         mostSignificantAxisTV.setText(stepCount + " steps");
-        if (!no_stepDetector) {
+        if (!noUseStepCounter) {
             playMedia();
-        } else{
+        } else {
             if (stepCount - lastStepCount >= stepSet) {
                 playMedia();
                 lastStepCount = stepCount;
